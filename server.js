@@ -101,7 +101,17 @@ async function handleRequest(req, res) {
     }
 
     const parsed = url.parse(req.url, true);
-    const pathname = parsed.pathname;
+    let pathname = req.headers["x-matched-path"] ||
+                   req.headers["x-vercel-matched-path"] ||
+                   (parsed.query && parsed.query.path ? (parsed.query.path.startsWith("/") ? parsed.query.path : "/" + parsed.query.path) : null) ||
+                   parsed.pathname || "/";
+
+    // En Vercel rewrites, eliminar prefijo /api/index.js si viene en la ruta
+    if (pathname.startsWith("/api/index.js")) {
+        pathname = pathname.slice("/api/index.js".length) || "/";
+    } else if (pathname.startsWith("/api")) {
+        pathname = pathname.slice("/api".length) || "/";
+    }
 
     // 1. Manifest: soporta /manifest.json o /{customConfig}/manifest.json
     if (pathname === "/manifest.json" || pathname.endsWith("/manifest.json")) {
