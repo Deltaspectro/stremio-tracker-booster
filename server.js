@@ -317,14 +317,19 @@ async function handleRequest(req, res) {
                     data.meta.genres = data.meta.genres.map(g => GENRE_TRANSLATIONS[g] || g);
                 }
 
-                // Traducir resumen de episodios si es una serie
+                // Traducir resumen de episodios si es una serie (en paralelo para máxima velocidad)
                 if (Array.isArray(data.meta.videos)) {
-                    for (let i = 0; i < Math.min(data.meta.videos.length, 12); i++) {
-                        const ep = data.meta.videos[i];
-                        if (ep && ep.overview) {
-                            ep.overview = await translateToSpanish(ep.overview);
+                    const batch = data.meta.videos.slice(0, 35);
+                    await Promise.all(batch.map(async (ep) => {
+                        const originalText = ep.description || ep.overview;
+                        if (originalText) {
+                            const translated = await translateToSpanish(originalText);
+                            if (translated && translated !== originalText) {
+                                ep.description = translated;
+                                ep.overview = translated;
+                            }
                         }
-                    }
+                    }));
                 }
             }
             res.setHeader("Content-Type", "application/json; charset=utf-8");
