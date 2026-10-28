@@ -75,12 +75,65 @@ function fetchJson(targetUrl) {
     });
 }
 
+const translationCache = new Map();
+
+const GENRE_TRANSLATIONS = {
+    "Action": "Acción",
+    "Adventure": "Aventura",
+    "Animation": "Animación",
+    "Comedy": "Comedia",
+    "Crime": "Crimen",
+    "Documentary": "Documental",
+    "Drama": "Drama",
+    "Family": "Familiar",
+    "Fantasy": "Fantasía",
+    "History": "Historia",
+    "Horror": "Terror",
+    "Music": "Música",
+    "Mystery": "Misterio",
+    "Romance": "Romance",
+    "Science Fiction": "Ciencia Ficción",
+    "Sci-Fi": "Ciencia Ficción",
+    "TV Movie": "Película de TV",
+    "Thriller": "Suspenso",
+    "War": "Guerra",
+    "Western": "Wéstern"
+};
+
+async function translateToSpanish(text) {
+    if (!text || typeof text !== "string") return text;
+    text = text.trim();
+    if (!text || text.length < 3) return text;
+    if (translationCache.has(text)) {
+        return translationCache.get(text);
+    }
+    try {
+        const transUrl = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=en|es";
+        const res = await fetchJson(transUrl);
+        let translated = res && res.responseData && res.responseData.translatedText;
+        if (translated && !translated.startsWith("MYMEMORY WARNING")) {
+            // Decodificar posibles entidades HTML
+            translated = translated
+                .replace(/&#39;/g, "'")
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">");
+            translationCache.set(text, translated);
+            return translated;
+        }
+    } catch (e) {
+        console.error("[Traducción] Error traduciendo texto:", e.message);
+    }
+    return text;
+}
+
 const manifest = {
     id: "org.stremio.trackerbooster.addon",
-    version: "1.0.0",
-    name: "🚀 Tracker Booster (ngosang)",
-    description: "Inyecta 134 trackers públicos a cada torrent para maximizar peers y velocidad de descarga.",
-    resources: ["stream"],
+    version: "1.2.0",
+    name: "🚀 Tracker Booster + Sinopsis en Español",
+    description: "Multiplica los peers con 134 trackers y traduce automáticamente las sinopsis y géneros de películas y series al español.",
+    resources: ["stream", "meta"],
     types: ["movie", "series"],
     idPrefixes: ["tt"],
     catalogs: [],
@@ -239,7 +292,51 @@ async function handleRequest(req, res) {
         return res.end(html);
     }
 
-    // 3. Streams: soporta /stream/{type}/{id}.json o /{config}/stream/{type}/{id}.json
+    // 3. Metadata (Traducción de Sinopsis): /meta/{type}/{id}.json o /{config}/meta/{type}/{id}.json
+    const metaMatch = pathname.match(/(?:^|\/meta\/)(?:[^/]+\/)?meta\/([^/]+)\/([^/]+)\.json$/) ||
+                      pathname.match(/\/meta\/([^/]+)\/([^/]+)\.json$/);
+
+    if (metaMatch) {
+        const type = metaMatch[1];
+        const id = metaMatch[2];
+        const cinemetaUrl = `https://v3-cinemeta.strem.io/meta/${type}/${id}.json`;
+
+        try {
+            const data = await fetchJson(cinemetaUrl);
+            if (data && data.meta) {
+                // Traducir sinopsis principal
+                if (data.meta.description) {
+                    const translatedDesc = await translateToSpanish(data.meta.description);
+                    if (translatedDesc && translatedDesc !== data.meta.description) {
+                        data.meta.description = translatedDesc;
+                    }
+                }
+
+                // Traducir lista de géneros
+                if (Array.isArray(data.meta.genres)) {
+                    data.meta.genres = data.meta.genres.map(g => GENRE_TRANSLATIONS[g] || g);
+                }
+
+                // Traducir resumen de episodios si es una serie
+                if (Array.isArray(data.meta.videos)) {
+                    for (let i = 0; i < Math.min(data.meta.videos.length, 12); i++) {
+                        const ep = data.meta.videos[i];
+                        if (ep && ep.overview) {
+                            ep.overview = await translateToSpanish(ep.overview);
+                        }
+                    }
+                }
+            }
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            return res.end(JSON.stringify(data || { meta: null }));
+        } catch (err) {
+            console.error("[Addon] Error consultando Cinemeta para traducción:", err.message);
+            res.setHeader("Content-Type", "application/json; charset=utf-8");
+            return res.end(JSON.stringify({ meta: null }));
+        }
+    }
+
+    // 4. Streams: soporta /stream/{type}/{id}.json o /{config}/stream/{type}/{id}.json
     const streamMatch = pathname.match(/(?:^|\/stream\/)(?:[^/]+\/)?stream\/([^/]+)\/([^/]+)\.json$/) ||
                         pathname.match(/\/stream\/([^/]+)\/([^/]+)\.json$/);
 
