@@ -1,0 +1,12 @@
+{
+  "name": "stremio-tracker-booster-addon",
+  "version": "1.0.0",
+  "description": "Stremio Addon to boost torrents with 134 ngosang public trackers",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["stremio", "addon", "trackers", "bittorrent"],
+  "author": "",
+  "license": "MIT"
+}
